@@ -1,40 +1,28 @@
 import os
-import cv2
 import torch
 import numpy as np
-import gradio as gr
-from tqdm import tqdm
-from PIL import Image, ImageDraw
+import cv2
+from PIL import Image
+from src.sam2.build_sam import build_sam2
+from src.sam2.sam2_image_predictor import SAM2ImagePredictor
+from src.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-from sam2.build_sam import build_sam2
-from sam2.sam2_image_predictor import SAM2ImagePredictor
-from sam2.build_sam import build_sam2_video_predictor
-from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-import gc
-
-
-if torch.cuda.is_available() and torch.cuda.get_device_properties(0).major >= 8:
-    # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-
-
-image_predictor = None
+# 全局变量
 sam2_model = None
+image_predictor = None
 
-
-def get_sam2_config():
-    return "sam2_hiera_l.yaml", "checkpoints/sam2_hiera_large.pt"
-
+# 检测设备类型
+device = "mps" if torch.backends.mps.is_available() else "cpu"
+print(f"Using device: {device}")
 
 def get_sam2_model(device):
     global sam2_model
     if sam2_model:
         return sam2_model
-    model_cfg, sam2_checkpoint = get_sam2_config()
+    model_cfg = "sam2_hiera_l.yaml"
+    sam2_checkpoint = "checkpoints/sam2_hiera_large.pt"
     sam2_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
     return sam2_model
-
 
 def get_image_predicator(device):
     global image_predictor
@@ -43,74 +31,58 @@ def get_image_predicator(device):
     image_predictor = SAM2ImagePredictor(get_sam2_model(device))
     return image_predictor
 
+def segment_one(input_image, predictor):
+    """处理单张图片的分割"""
+    # 读取图片
+    if isinstance(input_image, str):
+        image = Image.open(input_image).convert('RGB')
+        image = np.array(image)
+    else:
+        image = input_image
+        
+    # 设置图片
+    predictor.set_image(image)
+    
+    # 生成点击位置（图片中心点）
+    h, w = image.shape[:2]
+    point_coords = np.array([[w//2, h//2]])
+    point_labels = np.array([1])
+    
+    # 预测掩码
+    masks, iou_predictions, _ = predictor.predict(
+        point_coords=point_coords,
+        point_labels=point_labels,
+        multimask_output=True
+    )
+    
+    # 选择最佳掩码
+    mask_idx = np.argmax(iou_predictions)
+    mask = masks[mask_idx]
+    
+    # 创建彩色掩码
+    color_mask = np.zeros((h, w, 3), dtype=np.uint8)
+    color_mask[mask] = [255, 0, 0]  # 红色掩码
+    
+    # 合并原图和掩码
+    result = image.copy()
+    mask_region = mask[..., None]
+    result = np.where(mask_region, cv2.addWeighted(result, 0.5, color_mask, 0.5, 0), result)
+    
+    return result, mask
 
-def segment_one(img, mask_generator, seed=None):
-    if seed is not None:
-        np.random.seed(seed)
-    masks = mask_generator.generate(img)
-    sorted_anns = sorted(masks, key=(lambda x: x['area']), reverse=True)
-    mask_all = np.ones((img.shape[0], img.shape[1], 3))
-    for ann in sorted_anns:
-        m = ann['segmentation']
-        color_mask = np.random.random((1, 3)).tolist()[0]
-        for i in range(3):
-            mask_all[m == True, i] = color_mask[i]
-    result = img / 255 * 0.3 + mask_all * 0.7
-    return result, mask_all
-
+def process_image(image_path, output_path):
+    """处理图片并保存结果"""
+    predictor = get_image_predicator(device)
+    result, mask = segment_one(image_path, predictor)
+    
+    # 保存结果
+    result_img = Image.fromarray(result)
+    result_img.save(output_path)
+    
+    return output_path
 
 def generator_inference(device, input_image):
+    """使用自动掩码生成器处理图片"""
     mask_generator = SAM2AutomaticMaskGenerator(get_sam2_model(device))
     result, mask_all = segment_one(input_image, mask_generator)
     return result, mask_all
-
-
-def predictor_inference(device, input_image, prompt_points):
-    predictor = get_image_predicator(device)
-    predictor.set_image(input_image)
-    transformed_boxes = None
-
-    if len(prompt_points) != 0:
-        points_value = [p for p, _ in prompt_points]
-        points = torch.Tensor(points_value).to(device).unsqueeze(1)
-        lables_value = [int(l) for _, l in prompt_points]
-        labels = torch.Tensor(lables_value).to(device).unsqueeze(1)
-        transformed_points = points
-    else:
-        transformed_points, labels = None, None
-    
-    
-    input_points = np.array([(p[0][0], p[0][1]) for p in prompt_points])
-    input_labels = np.array([p[1] for p in prompt_points])
-    box = None
-    
-    masks, scores, logits = predictor.predict(
-        point_coords = input_points,
-        point_labels = input_labels,
-        box = box,
-        multimask_output=False
-    )
-    
-    mask = masks[0]    
-    mask_all = np.ones((input_image.shape[0], input_image.shape[1], 3))
-    # color_mask = np.random.random((1, 3)).tolist()[0]
-    for i in range(3):
-        mask_all[mask == True, i] = 1
-        mask_all[mask == False, i] = 0.3
-    img = input_image * mask_all / 255
-    gc.collect()
-    torch.cuda.empty_cache()
-    
-    mask_all = np.zeros((input_image.shape[0], input_image.shape[1]))
-    mask_all[mask == True] = 1
-    masked_image = np.zeros((input_image.shape[0], input_image.shape[1], 4))
-    masked_image[:,:,0:3] = input_image / 255
-    masked_image[:,:,3] = mask_all
-    return img, masked_image
-
-
-def image_inference(device, input_image, prompt_points=[]):
-    if len(prompt_points) != 0:
-        return predictor_inference(device, input_image, prompt_points)
-    else:
-        return generator_inference(device, input_image)

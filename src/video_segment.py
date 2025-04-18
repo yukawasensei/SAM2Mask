@@ -6,18 +6,17 @@ from tqdm import tqdm
 from video_process import PointSet
 from glob import glob
 from PIL import Image, ImageDraw
+import gc
 
 from sam2.build_sam import build_sam2_video_predictor
 
-if torch.cuda.get_device_properties(0).major >= 8:
-    # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-
+# 检测设备类型
+device = "mps" if torch.backends.mps.is_available() else "cpu"
+print(f"Using device: {device}")
 
 sam2_checkpoint = "checkpoints/sam2_hiera_large.pt"
 model_cfg = "sam2_hiera_l.yaml"
-video_predicator = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
+video_predicator = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=device)
 
 
 class InterferenceFrame:
@@ -106,7 +105,11 @@ def video_interfrence(video_path, output_path, frames, width, height):
         if os.path.exists(full_origin_name):
             merge_mask(full_origin_name, full_file_name, full_result_name)
     merge_video(result_path, final_file)
-    torch.cuda.empty_cache()
+    # 清理内存
+    if device == "mps":
+        torch.mps.empty_cache()
+    elif device == "cuda":
+        torch.cuda.empty_cache()
     gc.collect()
     return final_file
         

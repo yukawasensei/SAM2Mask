@@ -29,7 +29,7 @@
 
 1. 克隆仓库：
 ```bash
-git clone [repository-url]
+git clone https://github.com/yourusername/SAM2Mask.git
 cd SAM2Mask
 ```
 
@@ -87,13 +87,31 @@ SAM2Mask/
 
 ## 许可证
 
-[添加许可证信息]
+MIT License
+
+Copyright (c) 2024 SAM2Mask
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 ## 贡献指南
 
-欢迎提交 Issue 和 Pull Request 来帮助改进项目。
+欢迎提交 Issue 和 Pull Request 来帮助改进项目。在提交贡献之前，请确保：
+
+1. 代码符合项目的编码规范
+2. 添加必要的测试用例
+3. 更新相关文档
+4. 提交有意义的 commit 信息
 
 ## 致谢
 
-- 感谢 SAM2 团队提供的优秀模型
+- 感谢 Meta AI 团队开发的 SAM2 模型
+- 感谢 Gradio 团队提供的优秀 Web UI 框架
 - 感谢所有贡献者的支持 
