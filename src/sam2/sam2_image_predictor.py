@@ -12,8 +12,8 @@ import numpy as np
 import torch
 from PIL.Image import Image
 
-from src.sam2.modeling.sam2_base import SAM2Base
-from src.sam2.utils.transforms import SAM2Transforms
+from .modeling.sam2_base import SAM2Base
+from .utils.transforms import SAM2Transforms
 
 
 class SAM2ImagePredictor:

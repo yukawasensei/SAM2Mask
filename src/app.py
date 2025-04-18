@@ -3,11 +3,11 @@ import cv2
 import torch
 import numpy as np
 import gradio as gr
-from image_segment import image_inference
-from video_segment import video_interfrence, InterferenceFrame
+import hydra
+from image_segment import image_inference, ImageSegmentor
+from video_segment import video_interfrence, InterferenceFrame, VideoSegmentor
 from video_process import count_video_frame_total, get_video_frame, SegmentItemContainer, SegmentItem, ImageFrame
 from glob import glob
-
 
 wdir = os.path.dirname(__file__)
 os.chdir(wdir)
@@ -16,8 +16,8 @@ colors = [(255, 0, 0), (0, 255, 0)]
 markers = [1, 5]
 
 
-image_examples = sorted(list(glob(os.path.join(os.curdir, 'images', '*.jpg'))))
-video_examples = sorted(list(glob(os.path.join(os.curdir, 'images', '*.mp4'))))
+image_examples = sorted(list(glob(os.path.join('..', 'images', '*.jpg'))))
+video_examples = sorted(list(glob(os.path.join('..', 'images', '*.mp4'))))
 
 
 
@@ -28,7 +28,7 @@ current_origin_frame = None
 
 # ---- Video Global Variables ----
 # current video file
-current_video_file = video_examples[0]
+current_video_file = video_examples[0] if video_examples else None
 # item container
 item_container = SegmentItemContainer.instance()
 # ---- End ----
@@ -110,7 +110,8 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     with gr.Column(variant = 'panel'):
                         gr.Markdown('### 步骤1:&nbsp;&nbsp;选择/上传原始视频')
-                        input_video = gr.Video(label='原始视频', value=video_examples[0])
+                        input_video_value = video_examples[0] if video_examples else None
+                        input_video = gr.Video(label='原始视频', value=input_video_value)
                         gr.Examples(
                             label = '样例视频',
                             examples=video_examples,
@@ -127,13 +128,14 @@ with gr.Blocks() as demo:
                 gr.Markdown('### 步骤2:&nbsp;&nbsp;编辑分割物品')
                 with gr.Row():
                     with gr.Column(variant='panel'):
-                        maximum = count_video_frame_total(current_video_file)
-                        origin_frame = gr.Image(label='原始帧预览', type='numpy', interactive=False,value=get_video_frame(current_video_file, 0))
-                        origin_slider = gr.Slider(label='选择原视频帧', maximum = maximum, value = 0, step=1)
+                        maximum = count_video_frame_total(current_video_file) if current_video_file else 0
+                        origin_frame_value = get_video_frame(current_video_file, 0) if current_video_file else None
+                        origin_frame = gr.Image(label='原始帧预览', type='numpy', interactive=False, value=origin_frame_value)
+                        origin_slider = gr.Slider(label='选择原视频帧', maximum=maximum, value=0, step=1)
 
                 with gr.Row():
                     with gr.Column(variant='panel'):
-                        gr.Markdown('拖动上方的滑块选择包含目标物品的原始帧，从“选择物品”下拉框中输入新物品或选择已有物品，点击“加入物品”加入到“物品帧预览”中。')
+                        gr.Markdown('拖动上方的滑块选择包含目标物品的原始帧，从"选择物品"下拉框中输入新物品或选择已有物品，点击"加入物品"加入到"物品帧预览"中。')
                     with gr.Column(variant='panel'):
                         existing_items = new_existing_items_dropdown()
                         existing_item_btn = gr.Button('加入物品')
@@ -409,7 +411,7 @@ with gr.Blocks() as demo:
     
     def segment_video(video_path):
         global item_container
-        output_path = '..\output'
+        output_path = os.path.join('..', 'output')
         frames = []
         width = 0
         height = 0
